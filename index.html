@@ -1,0 +1,406 @@
+﻿<!DOCTYPE html>
+<html>
+<title>2D Tile Based Platform Demo</title>
+<body>
+
+<canvas id="myCanvas" width="160" height="160" >
+Your browser does not support the HTML5 canvas tag.</canvas>
+
+<script>
+
+	/**	
+	 * requestAnim shim layer by Paul Irish
+	 * Finds the first API that works to optimize the animation loop, 
+	 * otherwise defaults to setTimeout().
+	 */
+	window.requestAnimFrame = (function(){
+		return  window.requestAnimationFrame       || 
+			window.webkitRequestAnimationFrame || 
+			window.mozRequestAnimationFrame    || 
+			window.oRequestAnimationFrame      || 
+			window.msRequestAnimationFrame     || 
+			function(/* function */ callback, /* DOMElement */ element){
+				window.setTimeout(callback, 1000 / 60);
+			};
+	})();	
+ 
+	/* Constants and variables */
+   
+  	var 	map 		= [ [] ],
+		tileWidth 	= 20,
+		tileHeigth 	= 20,
+ 		viewer 		= {partialX:0,partialY:0,tileX:0,tileY:0},
+		mapWidth	= 24,
+		mapHeight	= 16,  	
+		color 		= { black: '#000000', green: '#00FF00',  blue: '#0000FF', red: '#FF0000', yellow: '#FFFF00'},
+		player		= {x:10,y:10,radius:5,speedX:1,speedY:1,color:color.black},
+		objects		= [];
+
+	var	canvas		= document.getElementById('myCanvas'),
+		context 	= canvas.getContext('2d');
+
+	var	scrollOffsetXLow	= canvas.width/2,
+		scrollOffsetXHigh	= mapWidth*tileWidth-canvas.width/2,
+		scrollOffsetYLow	= canvas.height/2,
+		scrollOffsetYHigh	= mapHeight*tileHeigth-canvas.height/2,
+		viewSizeX		= canvas.width/tileWidth,
+		viewSizeY		= canvas.height/tileHeigth,
+		viewsizeMaxX		= mapWidth - viewSizeX,
+		viewsizeMaxY		= mapHeight - viewSizeY;		
+	
+	var imageRepository = new function() {
+		this.tile = new Image();
+		this.tile.src = 'tiles2.png';
+	}
+
+
+	function drawBox(selection,x,y,x2,y2,partial){
+
+		var tileIndex = map[selection.x][selection.y].value;
+		
+		context.save();
+		if(partial==4){
+			context.drawImage(imageRepository.tile, (tileIndex * tileWidth)+x2,y2, tileWidth-x2, tileHeigth-y2, 0, 0, tileWidth-x2, tileHeigth-y2);
+		}else if(partial==3){
+			context.drawImage(imageRepository.tile, (tileIndex * tileWidth),y2, tileWidth, tileHeigth-y2,((selection.x - x)*tileWidth)-x2, 0, tileWidth, tileHeigth-y2);
+		}else if(partial==2){
+			context.drawImage(imageRepository.tile, (tileIndex * tileWidth)+x2,0, tileWidth-x2, tileHeigth, 0, ((selection.y - y)*tileHeigth)-y2, tileWidth-x2, tileHeigth);
+		}else if(partial==0){
+			context.drawImage(imageRepository.tile, (tileIndex * tileWidth),0, tileWidth, tileHeigth,((selection.x - x)*tileWidth)-x2, ((selection.y - y)*tileHeigth)-y2, tileWidth, tileHeigth);
+		}
+		context.restore();
+	}
+
+
+	function initBalls(){
+		var ball1	= {x:100,y:30,radius:5,speedX:1,speedY:1,color:color.green};
+		var ball2	= {x:30,y:30,radius:5,speedX:1,speedY:-1,color:color.blue};
+		var ball3	= {x:20,y:100,radius:5,speedX:-1,speedY:1,color:color.yellow};
+		var ball4	= {x:40,y:50,radius:5,speedX:-1,speedY:-1,color:color.red};
+
+		objects.push(ball1);
+		objects.push(ball2);
+		objects.push(ball3);
+		objects.push(ball4);
+	}
+
+
+	function fillEmptyMap(array, width, height) {
+		var value = 0;
+
+		for (var x = 0; x < width; x++) {
+		array[x] = [];
+			for (var y = 0; y < height; y++) {
+				value = Math.floor(Math.random() * 8)
+				if (value == 1){
+					array[x][y] = {value: value, collision:1};
+				} else {
+					array[x][y] = {value: value, collision:0};				
+				}
+       	 		}
+		}
+	}
+
+ 
+	function viewCalculation() {
+
+		if(player.x > scrollOffsetXLow && player.x < scrollOffsetXHigh){
+
+				viewer.partialX += player.speedX;
+	
+				if (viewer.partialX < 0){
+					viewer.partialX = tileWidth - 1;
+					viewer.tileX--;
+	
+				}
+				if (viewer.partialX > tileWidth - 1){
+					viewer.partialX = 0;
+					viewer.tileX++;	
+				}
+						
+		} 
+
+		if(player.x == scrollOffsetXLow || player.x == scrollOffsetXHigh){
+
+			viewer.partialX = 0;
+			if(player.x == scrollOffsetXLow){
+				viewer.tileX = 0;
+			}else {
+				viewer.tileX = viewsizeMaxX;
+			}
+
+		}
+		if(player.y > scrollOffsetYLow && player.y < scrollOffsetYHigh){			
+				viewer.partialY += player.speedY;
+
+				if (viewer.partialY < 0){
+					viewer.partialY = tileHeigth - 1;
+					viewer.tileY--;	
+				}
+				if (viewer.partialY > tileHeigth - 1){
+					viewer.partialY = 0;
+					viewer.tileY++;	
+				}
+		}
+
+		if(player.y == scrollOffsetYLow || player.y == scrollOffsetYHigh){
+			viewer.partialY = 0;
+			if(player.y == scrollOffsetYLow){
+				viewer.tileY = 0;
+			}else {
+				viewer.tileY = viewsizeMaxY;
+			}
+		}
+	}
+
+
+	function tileCollision(entity){
+
+		var newSelection = {x:0,y:0};
+
+		newSelection.x = Math.floor(entity.x/tileWidth);	
+		newSelection.y = Math.floor(entity.y/tileHeigth);
+
+		if(entity.speedX == 1){
+			if(newSelection.x < mapWidth - 1){
+				if(newSelection.x+1 == Math.floor((entity.x+entity.radius)/tileWidth)){
+					if(map[newSelection.x+1][newSelection.y].collision == 1){
+						entity.speedX = -1;
+					}
+					if(entity.speedY == 1){
+						if(newSelection.y < mapHeight - 1){
+							if(newSelection.y+1 == Math.floor((entity.y+entity.radius)/tileHeigth)){
+								if(map[newSelection.x+1][newSelection.y+1].collision == 1){
+									entity.speedX = -1;
+								}
+							}
+						}
+		 			} else {
+						if(newSelection.y > 0){
+							if(newSelection.y-1 == Math.floor((entity.y-entity.radius)/tileHeigth)){
+								if(map[newSelection.x+1][newSelection.y-1].collision == 1){
+									entity.speedX = -1;
+								}
+							}
+						}
+					}
+				}
+			}
+		} else {
+			if(newSelection.x > 0){
+				if(newSelection.x-1 == Math.floor((entity.x-entity.radius)/tileWidth)){
+					if(map[newSelection.x-1][newSelection.y].collision == 1){
+						entity.speedX = 1;
+					}
+					if(entity.speedY == 1){
+						if(newSelection.y < mapHeight - 1){
+							if(newSelection.y+1 == Math.floor((entity.y+entity.radius)/tileHeigth)){
+								if(map[newSelection.x-1][newSelection.y+1].collision == 1){									
+									entity.speedX = 1;
+								}
+							}
+						}
+		 			} else {
+						if(newSelection.y > 0){
+							if(newSelection.y-1 == Math.floor((entity.y-entity.radius)/tileHeigth)){
+								if(map[newSelection.x-1][newSelection.y-1].collision == 1){									
+									entity.speedX = 1;
+								}
+							}
+						}
+					}
+				}
+			}	
+		}
+		
+
+		
+		if(entity.speedY == 1){
+			if(newSelection.y < mapHeight - 1){
+				if(newSelection.y+1 == Math.floor((entity.y+entity.radius)/tileHeigth)){
+					if(map[newSelection.x][newSelection.y+1].collision == 1){
+						entity.speedY = -1;
+					}
+				}
+			}
+		 } else {
+			if(newSelection.y > 0){
+				if(newSelection.y-1 == Math.floor((entity.y-entity.radius)/tileHeigth)){
+					if(map[newSelection.x][newSelection.y-1].collision == 1){
+						entity.speedY = 1;
+					}
+				}
+			}	
+		}
+		
+	}
+
+
+	function borderCollision(entity){
+
+		if (entity.x <= entity.radius){
+			entity.speedX = 1;
+		}
+		if (entity.x >= mapWidth*tileWidth-entity.radius){
+			entity.speedX = -1;
+		}
+		if (entity.y <= entity.radius){
+			entity.speedY = 1;
+		}
+		if (entity.y >= mapHeight*tileHeigth-entity.radius){
+			entity.speedY = -1;
+		}		
+
+	}
+
+
+	function updateXY(){
+		player.x += player.speedX;
+		player.y += player.speedY;
+		
+		var l = objects.length;
+
+		for (var i = 0; i < l; i++) {
+			objects[i].x += objects[i].speedX;
+			objects[i].y += objects[i].speedY;
+		}
+	}
+
+
+	function collisionDetect(){
+		tileCollision(player);
+		borderCollision(player);
+		var l = objects.length;
+
+		for (var i = 0; i < l; i++) {
+			tileCollision(objects[i]);
+			borderCollision(objects[i]);
+		}
+	}
+
+
+	function drawView(){
+		var selection = {x:0,y:0};
+		var partialX = false;
+		var partialY = false;
+		var loopx = viewer.tileX+viewSizeX; 
+		var loopy = viewer.tileY+viewSizeY;
+ 
+		context.clearRect(0, 0, canvas.width, canvas.height);
+
+		// Is need draw partial size tile start
+
+		if(viewer.partialX != 0){
+			partialX = true;
+			if(viewer.tileX < viewsizeMaxX){
+				loopx++;
+			}
+		}
+
+		
+		if(viewer.partialY != 0){
+			partialY = true;
+			if(viewer.tileY < viewsizeMaxY){
+				loopy++;
+			}
+		}
+
+		// Is need draw partial size tile end
+
+		for (var i = viewer.tileX; i < loopx; i++) {
+			for (var j = viewer.tileY; j < loopy; j++) {
+				selection.x = i;				
+				selection.y = j;
+
+				if(partialY == true && j == viewer.tileY && partialX == true && i == viewer.tileX){
+					drawBox(selection,viewer.tileX,viewer.tileY,viewer.partialX,viewer.partialY,4);
+				}else if(partialY == true && j == viewer.tileY){
+					drawBox(selection,viewer.tileX,viewer.tileY,viewer.partialX,viewer.partialY,3);				
+				}else if(partialX == true && i == viewer.tileX){
+					drawBox(selection,viewer.tileX,viewer.tileY,viewer.partialX,viewer.partialY,2);
+				}else{
+					drawBox(selection,viewer.tileX,viewer.tileY,viewer.partialX,viewer.partialY,0);				
+				}
+			}
+		}
+	}
+
+
+	function drawPlayer(){
+
+		var playerX = 0;
+		var playerY = 0;
+
+		if(player.x < scrollOffsetXLow){
+			playerX = player.x;
+		}
+		if(player.x > scrollOffsetXLow && player.x < scrollOffsetXHigh){
+			playerX = scrollOffsetXLow;		
+		}
+		if(player.x > scrollOffsetXHigh){
+			playerX = player.x - scrollOffsetXHigh + scrollOffsetXLow;
+		}
+
+		if(player.y < scrollOffsetYLow){
+			playerY = player.y;
+		}
+		if(player.y > scrollOffsetYLow && player.y < scrollOffsetYHigh){
+			playerY = scrollOffsetYLow;			
+		}
+		if(player.y > scrollOffsetYHigh){
+			playerY = player.y - scrollOffsetYHigh + scrollOffsetYLow;
+		}
+
+		context.save();		
+		context.beginPath();
+ 		context.fillStyle = player.color;
+		context.arc(playerX, playerY, player.radius, 0, 2 * Math.PI, false);
+		context.fill();
+		context.closePath();
+		context.restore();
+	}
+
+
+	function drawObjects(){
+		var l = objects.length;
+
+		for (var i = 0; i < l; i++) {
+			if(objects[i].x > viewer.tileX*tileWidth && objects[i].x < (viewer.tileX+viewSizeX)*tileWidth){
+				if(objects[i].y > viewer.tileY*tileHeigth && objects[i].y <(viewer.tileY+viewSizeY)*tileHeigth){
+					context.save();
+					context.beginPath();
+ 					context.fillStyle = objects[i].color;
+					context.arc(objects[i].x-(viewer.tileX*tileWidth)-viewer.partialX, objects[i].y-(viewer.tileY*tileHeigth)-viewer.partialY, objects[i].radius, 0, 2 * Math.PI, false);
+					context.fill();
+					context.closePath();
+					context.restore();
+				}
+			}
+		}
+	}
+
+
+	function draw() {
+		updateXY()
+		viewCalculation();
+		collisionDetect()
+		drawView();
+		drawPlayer();
+		drawObjects();
+	}
+
+
+	function animate() {
+		requestAnimFrame( animate );
+		draw();
+	}
+
+
+	fillEmptyMap(map, mapWidth, mapHeight);
+	initBalls();
+	animate();
+
+</script> 
+
+</body>
+</html>
